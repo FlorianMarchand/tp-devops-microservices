@@ -1,0 +1,51 @@
+name: Microservices CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Java 21
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+
+    # Build commande-service
+    - name: Build Commande Service
+      run: |
+        cd commande-service
+        mvn clean install
+
+    # Build config-service
+    - name: Build Config Service
+      run: |
+        cd config-service
+        mvn clean install
+
+    # Build discovery-service
+    - name: Build Discovery Service
+      run: |
+        cd discovery-service
+        mvn clean install
+
+    # Build gateway-service
+    - name: Build Gateway Service
+      run: |
+        cd gateway-service
+        mvn clean install
+
+    # Build paiement-service
+    - name: Build Paiement Service
+      run: |
+        cd paiement-service
+        mvn clean install
