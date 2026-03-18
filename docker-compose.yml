@@ -1,0 +1,234 @@
+version: '3.8'
+
+services:
+
+  # ════════════════════════════════════════════════
+  #  BASES DE DONNÉES PostgreSQL
+  # ════════════════════════════════════════════════
+
+  postgres-catalogue:
+    image: postgres:16-alpine
+    container_name: postgres-catalogue
+    environment:
+      POSTGRES_DB: cataloguedb
+      POSTGRES_USER: catalogue_user
+      POSTGRES_PASSWORD: catalogue_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - catalogue-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalogue_user -d cataloguedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservices-net
+
+  postgres-commande:
+    image: postgres:16-alpine
+    container_name: postgres-commande
+    environment:
+      POSTGRES_DB: commandedb
+      POSTGRES_USER: commande_user
+      POSTGRES_PASSWORD: commande_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - commande-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commande_user -d commandedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservices-net
+
+  postgres-paiement:
+    image: postgres:16-alpine
+    container_name: postgres-paiement
+    environment:
+      POSTGRES_DB: paiementdb
+      POSTGRES_USER: paiement_user
+      POSTGRES_PASSWORD: paiement_pass
+    ports:
+      - "5434:5432"
+    volumes:
+      - paiement-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paiement_user -d paiementdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservices-net
+
+  # ════════════════════════════════════════════════
+  #  INFRASTRUCTURE (Config + Discovery)
+  # ════════════════════════════════════════════════
+
+  config-service:
+    build:
+      context: ./config-service
+      dockerfile: Dockerfile
+    container_name: config-service
+    ports:
+      - "8888:8888"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - microservices-net
+
+  discovery-service:
+    build:
+      context: ./discovery-service
+      dockerfile: Dockerfile
+    container_name: discovery-service
+    ports:
+      - "8761:8761"
+    depends_on:
+      config-service:
+        condition: service_healthy
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-service:8888
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - microservices-net
+
+  # ════════════════════════════════════════════════
+  #  GATEWAY
+  # ════════════════════════════════════════════════
+
+  gateway-service:
+    build:
+      context: ./gateway-service
+      dockerfile: Dockerfile
+    container_name: gateway-service
+    ports:
+      - "8080:8080"
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-service:8888
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-service:8761/eureka
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - microservices-net
+
+  # ════════════════════════════════════════════════
+  #  MICROSERVICES MÉTIER
+  # ════════════════════════════════════════════════
+
+  catalogue-service:
+    build:
+      context: ./catalogue-service
+      dockerfile: Dockerfile
+    container_name: catalogue-service
+    ports:
+      - "8081:8081"
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+      postgres-catalogue:
+        condition: service_healthy
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-service:8888
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-service:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-catalogue:5432/cataloguedb
+      - SPRING_DATASOURCE_DRIVER=org.postgresql.Driver
+      - SPRING_DATASOURCE_USERNAME=catalogue_user
+      - SPRING_DATASOURCE_PASSWORD=catalogue_pass
+      - SPRING_JPA_PLATFORM=org.hibernate.dialect.PostgreSQLDialect
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    networks:
+      - microservices-net
+
+  commande-service:
+    build:
+      context: ./commande-service
+      dockerfile: Dockerfile
+    container_name: commande-service
+    ports:
+      - "8082:8082"
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+      postgres-commande:
+        condition: service_healthy
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-service:8888
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-service:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-commande:5432/commandedb
+      - SPRING_DATASOURCE_DRIVER=org.postgresql.Driver
+      - SPRING_DATASOURCE_USERNAME=commande_user
+      - SPRING_DATASOURCE_PASSWORD=commande_pass
+      - SPRING_JPA_PLATFORM=org.hibernate.dialect.PostgreSQLDialect
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    networks:
+      - microservices-net
+
+  paiement-service:
+    build:
+      context: ./paiement-service
+      dockerfile: Dockerfile
+    container_name: paiement-service
+    ports:
+      - "8083:8083"
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+      postgres-paiement:
+        condition: service_healthy
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-service:8888
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-service:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-paiement:5432/paiementdb
+      - SPRING_DATASOURCE_DRIVER=org.postgresql.Driver
+      - SPRING_DATASOURCE_USERNAME=paiement_user
+      - SPRING_DATASOURCE_PASSWORD=paiement_pass
+      - SPRING_JPA_PLATFORM=org.hibernate.dialect.PostgreSQLDialect
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    networks:
+      - microservices-net
+
+# ════════════════════════════════════════════════
+#  VOLUMES PERSISTANTS
+# ════════════════════════════════════════════════
+volumes:
+  catalogue-db-data:
+  commande-db-data:
+  paiement-db-data:
+
+networks:
+  microservices-net:
+    driver: bridge
